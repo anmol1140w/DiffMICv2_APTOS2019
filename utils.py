@@ -104,8 +104,15 @@ def get_dataset(config):
         train_dataset = BUDataset(data_list=config.data.traindata, train=True)
         test_dataset = BUDataset(data_list=config.data.testdata, train=False)
     elif config.data.dataset == "APTOS":
-        train_dataset = APTOSDataset(data_list=config.data.traindata, train=True)
-        test_dataset = APTOSDataset(data_list=config.data.testdata, train=False)
+        if hasattr(config.data, "splits_manifest"):
+            from aptos_research.data import load_split_manifest, AptosImageDataset
+            manifest = load_split_manifest(config.data.splits_manifest)
+            train_dataset = AptosImageDataset(manifest['splits']['train'], 'train', size=224, training=True)
+            test_dataset = AptosImageDataset(manifest['splits']['validation'], 'validation', size=224, training=False)
+        else:
+            # Retain the original pickle-list route for existing APTOS experiments.
+            train_dataset = APTOSDataset(data_list=config.data.traindata, train=True)
+            test_dataset = APTOSDataset(data_list=config.data.testdata, train=False)
     elif config.data.dataset == "ISIC":
         train_dataset = ISICDataset(data_list=config.data.traindata, train=True)
         test_dataset = ISICDataset(data_list=config.data.testdata, train=False)

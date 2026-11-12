@@ -1,0 +1,20 @@
+{
+  "dataset": "APTOS 2019 Blindness Detection",
+  "num_classes": 5,
+  "grades": [0, 1, 2, 3, 4],
+  "input_size": 224,
+  "normalization": "ImageNet mean/std",
+  "split_seed": 2026,
+  "train_fraction": 0.70,
+  "validation_fraction": 0.15,
+  "test_fraction": 0.15,
+  "trajectory": {
+    "source": "ConditionalModel reverse sampler evolving class-probability grid",
+    "state_shape": "[batch, 5, 7, 7] (verify against loaded checkpoint/config)",
+    "states_K": [1, 4, 8, 16],
+    "default_projection": "global average pooling across 7x7 -> 5 class scores",
+    "seed": 2026
+  },
+  "gate": {"minimum_validation_accuracy_delta": 0.01, "alpha": 0.05, "bootstrap_samples": 5000},
+  "qrc": {"enabled_by_default": false, "max_statevector_qubits": 10}
+}

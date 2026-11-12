@@ -74,6 +74,10 @@ python diffuser_trainer.py
 ## Datasets
 Please refer to [DiffMIC](https://github.com/scott-yjyang/DiffMIC) for some details.
 
+## APTOS trajectory research pipeline
+
+This checkout includes an APTOS-specific data manifest, DiffMIC reverse-trajectory extraction, static/ESN/GRU controls, an executable evidence gate, conditional simulator QRC, and calibration/XAI utilities. Read [README.research.md](README.research.md) for the audit, dependencies, exact commands, split policy, and current verification limits. The pipeline does not claim the historical APTOS scores as reproduced unless the local dataset and compatible checkpoints are evaluated.
+
 
 
 

@@ -75,19 +75,26 @@ class SR3Sampler():
         
 
 
-    def sample_high_res(self,x_batch: torch.Tensor, noisy_y, conditions=None):
+    def sample_high_res(self,x_batch: torch.Tensor, noisy_y, conditions=None,
+                        trajectory_callback=None, selected_timesteps=None):
         "Using Diffusers built-in samplers"
         device = next(self.model.parameters()).device
         eta = torch.Tensor([self.eta]).to(device)
         x_batch=x_batch.to(device)
         y0, patches, attn = conditions[0].to(device),conditions[1].to(device),conditions[2].to(device)
         bz,nc,h,w = y0.shape
-        for t in self.scheduler.timesteps:
+        # The evolving tensor is a class-score diffusion grid (B, C, H, W), not
+        # an image latent. Optional capture is observational and happens after
+        # each scheduler transition; without a callback this path is unchanged.
+        selected = None if selected_timesteps is None else {int(v) for v in selected_timesteps}
+        for state_index, t in enumerate(self.scheduler.timesteps):
             self.model.eval()
             timesteps = t * torch.ones(bz*h*w, dtype=t.dtype, device=x_batch.device)
             with torch.no_grad():
                 noise = self.model(x_batch, torch.cat([y0,noisy_y],dim=1), timesteps, patches, attn)
             noisy_y = self.scheduler.step(model_output = noise,timestep = t,  sample = noisy_y).prev_sample #eta = eta
+            if trajectory_callback is not None and (selected is None or int(t) in selected):
+                trajectory_callback(int(t), state_index, noisy_y)
             del noise
             torch.cuda.empty_cache()
             

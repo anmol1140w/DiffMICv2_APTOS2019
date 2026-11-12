@@ -1,6 +1,5 @@
 from typing import Optional
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = '6'
 import numpy as np
 import copy
 from pytorch_lightning.utilities.types import EVAL_DATALOADERS, STEP_OUTPUT
@@ -56,7 +55,9 @@ class CoolSystem(pl.LightningModule):
 
         self.model = ConditionalModel(self.params, guidance=self.params.diffusion.include_guidance)
         self.aux_model = AuxCls(self.params)
-        self.init_weight(ckpt_path='pretraining/ckpt/placental_aux_model.pth')
+        aux_checkpoint = getattr(self.params.data, 'aux_checkpoint', None)
+        if aux_checkpoint:
+            self.init_weight(ckpt_path=aux_checkpoint)
         self.aux_model.eval()
 
         self.save_hyperparameters()
@@ -81,18 +82,28 @@ class CoolSystem(pl.LightningModule):
 
 
     def init_weight(self,ckpt_path=None):
-        
         if ckpt_path:
-            checkpoint = torch.load(ckpt_path,map_location=self.device)[0]
-            checkpoint_model = checkpoint
-            state_dict = self.aux_model.state_dict()
-            # # 1. filter out unnecessary keys
-            checkpoint_model = {k: v for k, v in checkpoint_model.items() if k in state_dict.keys()}
-            print(checkpoint_model.keys())
-            # 2. overwrite entries in the existing state dict
-            state_dict.update(checkpoint_model)
-            
-            self.aux_model.load_state_dict(state_dict) 
+            try:
+                checkpoint = torch.load(ckpt_path,map_location='cpu',weights_only=False)
+            except TypeError:  # PyTorch 1.13 compatibility
+                checkpoint = torch.load(ckpt_path,map_location='cpu')
+            if isinstance(checkpoint, dict) and 'state_dict' in checkpoint:
+                checkpoint = checkpoint['state_dict']
+            if isinstance(checkpoint, (tuple, list)):
+                checkpoint = checkpoint[0]
+            if not isinstance(checkpoint, dict):
+                raise ValueError('Auxiliary checkpoint must contain a state dictionary: %s' % ckpt_path)
+            if any(k.startswith('aux_model.') for k in checkpoint):
+                checkpoint = {k[len('aux_model.'):]:v for k,v in checkpoint.items() if k.startswith('aux_model.')}
+            target = self.aux_model.state_dict(); compatible={}; mismatched=[]
+            for key,value in checkpoint.items():
+                if key in target and tuple(value.shape)==tuple(target[key].shape): compatible[key]=value
+                elif key in target: mismatched.append((key,tuple(value.shape),tuple(target[key].shape)))
+            if not compatible: raise ValueError('No compatible auxiliary checkpoint weights found in %s' % ckpt_path)
+            fraction=len(compatible)/max(1,len(target))
+            if fraction<.95: raise ValueError('Auxiliary checkpoint only %.1f%% compatible (<95%%); mismatched=%s' % (100*fraction,mismatched))
+            print('Aux checkpoint: loaded %d/%d tensors (%.1f%%); mismatches=%s; missing=%d' % (len(compatible),len(target),100*fraction,mismatched,len(set(target)-set(compatible))))
+            target.update(compatible); self.aux_model.load_state_dict(target)
 
     def diffusion_focal_loss(self, prior, targets, noise, noise_gt, gamma=1, alpha=10):
         probs = F.softmax(prior, dim=1)
@@ -124,11 +135,11 @@ class CoolSystem(pl.LightningModule):
         self.model.train()
         self.aux_model.eval()
         
-        x_batch, y_batch = batch
+        x_batch, y_batch = batch[:2]
         y_batch, _ = cast_label_to_one_hot_and_prototype(y_batch, self.params)
-        y_batch = y_batch.cuda()
+        y_batch = y_batch.to(self.device)
         #bicubic = bicubic.cuda()
-        x_batch = x_batch.cuda()
+        x_batch = x_batch.to(self.device)
         with torch.no_grad():
             y0_aux, y0_aux_global, y0_aux_local, patches, attns, attn_map = self.aux_model(x_batch)
             # y0_aux_global,y0_aux_local = y0_aux_global.softmax(1),y0_aux_local.softmax(1)
@@ -189,10 +200,10 @@ class CoolSystem(pl.LightningModule):
         self.aux_model.eval()
 
         
-        x_batch, y_batch = batch
+        x_batch, y_batch = batch[:2]
         y_batch, _ = cast_label_to_one_hot_and_prototype(y_batch, self.params)
-        y_batch = y_batch.cuda()
-        x_batch = x_batch.cuda()
+        y_batch = y_batch.to(self.device)
+        x_batch = x_batch.to(self.device)
         y0_aux, y0_aux_global, y0_aux_local, patches, attns, attn_map = self.aux_model(x_batch)
 
         bz, nc, H, W = attn_map.size()
@@ -238,24 +249,50 @@ class CoolSystem(pl.LightningModule):
         )
         return test_loader  
 
+    def test_step(self, batch, batch_idx):
+        # Reuse the exact inference path; test labels are only consumed for final reporting.
+        self.validation_step(batch, batch_idx)
+
+    def on_test_epoch_end(self):
+        if not self.gts:
+            return
+        gt=torch.cat(self.gts); pred=torch.cat(self.preds)
+        ACC,BACC,Prec,Rec,F1,AUC_ovo,kappa=compute_isic_metrics(gt,pred)
+        for name,value in [('test_accuracy',ACC),('test_balanced_accuracy',BACC),('test_precision_macro',Prec),('test_recall_macro',Rec),('test_macro_f1',F1),('test_macro_auroc_ovo',AUC_ovo),('test_quadratic_weighted_kappa',kappa)]:
+            self.log(name,value)
+        print('Held-out test: Accuracy %.4f Macro-F1 %.4f AUROC-OVO %.4f QWK %.4f' % (ACC,F1,AUC_ovo,kappa))
+        self.gts=[];self.preds=[]
+
+    def test_dataloader(self):
+        from aptos_research.data import load_split_manifest,AptosImageDataset
+        manifest=load_split_manifest(self.params.data.splits_manifest)
+        dataset=AptosImageDataset(manifest['splits']['test'],'test',size=224,training=False)
+        return DataLoader(dataset,batch_size=self.params.testing.batch_size,shuffle=False,num_workers=self.params.data.num_workers)
+
 
 def main():
-    RESUME = False
-    resume_checkpoint_path = r'logs/placental/version_0/checkpoints/last.ckpt'
-    if RESUME == False:
-        resume_checkpoint_path =None
-
-    seed = 10
-    torch.manual_seed(seed)
-    random.seed(seed)
-    np.random.seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-    torch.backends.cudnn.benchmark = True
-
-    config_path = r'configs/placental.yml'
-    with open(config_path, 'r') as f:
+    import argparse
+    parser=argparse.ArgumentParser(description='Train the original DiffMIC-v2 diffusion model.')
+    parser.add_argument('--config',default='configs/placental.yml')
+    parser.add_argument('--resume',default=None)
+    parser.add_argument('--output-dir',default='logs')
+    parser.add_argument('--run-name',default=None)
+    parser.add_argument('--evaluate-only',action='store_true',help='evaluate --resume on the held-out APTOS test split')
+    args=parser.parse_args()
+    with open(args.config, 'r') as f:
         params = yaml.safe_load(f)
+    seed = int(params.get('data',{}).get('seed',10))
+    torch.manual_seed(seed); random.seed(seed); np.random.seed(seed)
+    if torch.cuda.is_available(): torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic=True
+    torch.backends.cudnn.benchmark=False
+    if params.get('data',{}).get('dataset')=='APTOS':
+        params['data']['splits_manifest']=os.environ.get('APTOS_SPLITS',params['data'].get('splits_manifest','outputs/aptos_splits.json'))
+        params['data']['aux_checkpoint']=os.environ.get('DIFFMIC_AUX_CHECKPOINT',params['data'].get('aux_checkpoint'))
+        if isinstance(params['data']['aux_checkpoint'],str) and params['data']['aux_checkpoint'].startswith('${'):
+            params['data']['aux_checkpoint']=None
+        if not params['data']['aux_checkpoint']:
+            raise RuntimeError('APTOS training requires DIFFMIC_AUX_CHECKPOINT pointing to a compatible pretrained DCG checkpoint')
     config = EasyDict(params)
 
 
@@ -263,9 +300,10 @@ def main():
 
     model = CoolSystem(config)
 
+    logger = TensorBoardLogger(name=args.run_name or config.data.dataset.lower(),save_dir=args.output_dir)
     checkpoint_callback = ModelCheckpoint(
         monitor='f1',
-        filename='placental-epoch{epoch:02d}-accuracy-{accuracy:.4f}-f1-{f1:.4f}',
+        filename=config.data.dataset.lower()+'-epoch{epoch:02d}-accuracy-{accuracy:.4f}-f1-{f1:.4f}',
         auto_insert_metric_name=False,   
         every_n_epochs=1,
         save_top_k=1,
@@ -276,8 +314,8 @@ def main():
     trainer = pl.Trainer(
         check_val_every_n_epoch=5,
         max_epochs=config.training.n_epochs,
-        accelerator='gpu',
-        devices=1,
+        accelerator='auto',
+        devices=1 if torch.cuda.is_available() else 'auto',
         precision=32,
         logger=logger,
         strategy="auto",
@@ -287,7 +325,13 @@ def main():
     ) 
 
     #train
-    trainer.fit(model,ckpt_path=resume_checkpoint_path)
+    if args.evaluate_only:
+        if config.data.dataset!='APTOS': raise RuntimeError('--evaluate-only is currently defined only for the manifest-based APTOS test split')
+        if not args.resume: raise RuntimeError('--evaluate-only requires --resume with a checkpoint')
+        trainer.test(model,ckpt_path=args.resume)
+    else:
+        trainer.fit(model,ckpt_path=args.resume)
+        if config.data.dataset=='APTOS': trainer.test(model,ckpt_path='best')
     
     #validate
     # val_path=r'DiffMIC/logs/placental/version_4/checkpoints/placental-epoch924-accuracy-0.9350-f1-0.9327.ckpt'
