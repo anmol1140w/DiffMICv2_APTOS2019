@@ -178,6 +178,9 @@ class CoolSystem(pl.LightningModule):
     #     for key in model_state_dict:
     #         ema_model_state_dict[key] = 0.999*ema_model_state_dict[key] + 0.001*model_state_dict[key]
     #     self.ema_model.load_state_dict(ema_model_state_dict)
+    def on_validation_epoch_start(self):
+        torch.cuda.empty_cache()
+
     def on_validation_epoch_end(self):
         gt = torch.cat(self.gts)
         pred = torch.cat(self.preds)
@@ -193,6 +196,7 @@ class CoolSystem(pl.LightningModule):
         self.gts = []
         self.preds = []
         print("Val: Accuracy {0}, F1 score {1}, Precision {2}, Recall {3}, AUROC {4}, Cohen Kappa {5}".format(ACC,F1,Prec,Rec,AUC_ovo,kappa))
+        torch.cuda.empty_cache()
 
 
     def validation_step(self,batch,batch_idx):

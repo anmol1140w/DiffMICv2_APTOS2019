@@ -66,7 +66,7 @@ def fit_classifier(features, labels, seed=0, max_iter=1000):
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
     from sklearn.linear_model import LogisticRegression
-    return make_pipeline(StandardScaler(),LogisticRegression(max_iter=max_iter,class_weight=None,random_state=seed,multi_class='auto'))
+    return make_pipeline(StandardScaler(),LogisticRegression(max_iter=max_iter,class_weight=None,random_state=seed))
 
 def make_gru(input_dim, hidden_dim=64, classes=5):
     import torch

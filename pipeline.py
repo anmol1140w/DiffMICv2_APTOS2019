@@ -82,6 +82,7 @@ class SR3Sampler():
         eta = torch.Tensor([self.eta]).to(device)
         x_batch=x_batch.to(device)
         y0, patches, attn = conditions[0].to(device),conditions[1].to(device),conditions[2].to(device)
+        image_ids = conditions[3] if (conditions is not None and len(conditions) > 3) else None
         bz,nc,h,w = y0.shape
         # The evolving tensor is a class-score diffusion grid (B, C, H, W), not
         # an image latent. Optional capture is observational and happens after
@@ -91,8 +92,12 @@ class SR3Sampler():
             self.model.eval()
             timesteps = t * torch.ones(bz*h*w, dtype=t.dtype, device=x_batch.device)
             with torch.no_grad():
-                noise = self.model(x_batch, torch.cat([y0,noisy_y],dim=1), timesteps, patches, attn)
+                try:
+                    noise = self.model(x_batch, torch.cat([y0,noisy_y],dim=1), timesteps, patches, attn, image_ids=image_ids)
+                except TypeError:
+                    noise = self.model(x_batch, torch.cat([y0,noisy_y],dim=1), timesteps, patches, attn)
             noisy_y = self.scheduler.step(model_output = noise,timestep = t,  sample = noisy_y).prev_sample #eta = eta
+            noisy_y = torch.clamp(noisy_y, -50.0, 50.0)
             if trajectory_callback is not None and (selected is None or int(t) in selected):
                 trajectory_callback(int(t), state_index, noisy_y)
             del noise

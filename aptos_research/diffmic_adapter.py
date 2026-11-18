@@ -20,13 +20,16 @@ def factory():
  from model import ConditionalModel
  from pretraining.dcg import DCG
  from pipeline import SR3Sampler,SR3scheduler
- root=os.environ.get('APTOS_ROOT'); manifest=os.environ.get('APTOS_SPLITS','outputs/aptos_splits.json')
- ckpt=os.environ.get('DIFFMIC_CHECKPOINT'); aux_ckpt=os.environ.get('DIFFMIC_AUX_CHECKPOINT')
- if not root: raise RuntimeError('Set APTOS_ROOT to the real APTOS directory')
- if not ckpt or not Path(ckpt).is_file(): raise RuntimeError('Set DIFFMIC_CHECKPOINT to an existing trained ConditionalModel checkpoint')
- if not aux_ckpt or not Path(aux_ckpt).is_file(): raise RuntimeError('Set DIFFMIC_AUX_CHECKPOINT to an existing trained DCG checkpoint')
+ cfg_path = os.environ.get('DIFFMIC_CONFIG', 'configs/aptos.yml')
+ config = yaml.safe_load(Path(cfg_path).read_text())
+ root=os.environ.get('APTOS_ROOT',config.get('data',{}).get('dataroot','/home/pratyum/diffmic/data/aptos'))
+ manifest=os.environ.get('APTOS_SPLITS',config.get('data',{}).get('splits_manifest','outputs/aptos_splits.json'))
+ ckpt=os.environ.get('DIFFMIC_CHECKPOINT','/home/pratyum/diffmic/checkpoints/v2/ckpts/aptos-epoch117-acc-0.8186-f1-0.6840.ckpt')
+ aux_ckpt=os.environ.get('DIFFMIC_AUX_CHECKPOINT',config.get('data',{}).get('aux_checkpoint','/home/pratyum/diffmic/code/DiffMICv2/pretraining/ckpt/aptos_aux_model.pth'))
+ if not root or not Path(root).is_dir(): raise RuntimeError('Set APTOS_ROOT to the real APTOS directory: %s' % root)
+ if not ckpt or not Path(ckpt).is_file(): raise RuntimeError('Set DIFFMIC_CHECKPOINT to an existing trained ConditionalModel checkpoint: %s' % ckpt)
+ if not aux_ckpt or not Path(aux_ckpt).is_file(): raise RuntimeError('Set DIFFMIC_AUX_CHECKPOINT to an existing trained DCG checkpoint: %s' % aux_ckpt)
  splits=load_split_manifest(manifest)
- config=yaml.safe_load(Path('configs/aptos.yml').read_text())
  config['data']['dataroot']=root; cfg=EasyDict(config)
  device=torch.device('cuda' if torch.cuda.is_available() else 'cpu')
  denoiser=ConditionalModel(cfg,guidance=True).to(device)
@@ -45,7 +48,7 @@ def factory():
  print('DCG checkpoint compatibility:',ar['loaded_fraction'],len(ar['mismatched_shapes']))
  denoiser.eval();aux.eval()
  scheduler=SR3scheduler(num_train_timesteps=1000,beta_start=.0001,beta_end=.02,beta_schedule='linear',diff_chns=5)
- scheduler.set_timesteps(100)
+ scheduler.set_timesteps(16)
  sampler=SR3Sampler(denoiser,scheduler,eta=0.0)
  import hashlib
  def file_hash(path):
@@ -72,6 +75,10 @@ def factory():
       for c in range(nc):
        cond[j,c,diag,diag]=y_global[j,c];cond[j,c,n-1,0]=y_local[j,c];cond[j,c,0,n-1]=y_local[j,c]
      attn=attns.unsqueeze(-1); attn=(attn*attn.transpose(1,2)).unsqueeze(1)
-     noisy=torch.randn_like(cond)
+     rg=torch.rand_like(y_global); rl=torch.rand_like(y_local)
+     noisy=wl[None,None]*rl[:,:,None,None]+wg[None,None]*rg[:,:,None,None]
+     for j in range(b):
+      for c in range(nc):
+       noisy[j,c,diag,diag]=rg[j,c]; noisy[j,c,n-1,0]=rl[j,c]; noisy[j,c,0,n-1]=rl[j,c]
     yield {'ids':list(ids),'labels':label.cpu().tolist(),'splits':list(split_names),'x_batch':image,'noisy_y':noisy,'conditions':[cond,patches,attn]}
  return sampler,batches()

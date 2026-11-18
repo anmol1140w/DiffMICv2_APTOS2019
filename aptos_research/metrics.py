@@ -10,7 +10,7 @@ def _matrix(labels, predictions, classes=5):
     return cm
 
 def classification_metrics(labels, probabilities):
-    if len(labels)!=len(probabilities) or not labels: raise ValueError('non-empty aligned labels/probabilities required')
+    if len(labels)!=len(probabilities) or len(labels)==0: raise ValueError('non-empty aligned labels/probabilities required')
     k=len(probabilities[0]); pred=[max(range(k),key=lambda j:row[j]) for row in probabilities]
     cm=_matrix(labels,pred,k); n=len(labels)
     f1=[]

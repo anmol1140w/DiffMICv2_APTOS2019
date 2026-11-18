@@ -1,0 +1,75 @@
+data:
+  dataset: APTOS
+  seed: 2026
+  label_min_max: [0.001, 0.999]
+  num_classes: 5
+  num_workers: 4
+  dataroot: /home/pratyum/diffmic/data/aptos
+  splits_manifest: outputs/aptos_splits.json
+  aux_checkpoint: quantum_v6_resnet/ckpts/aptos_quantum_dcg_best.pth
+
+model:
+  type: simple
+  arch: resnet18
+  encoder: sam
+  data_dim: 150528
+  n_input_channels: 3
+  n_input_padding: 0
+  feature_dim: 128
+  hidden_dim: 128
+  n_qubits: 4
+  num_k: 6
+  crop_shape: [32, 32]
+  cat_x: true
+  cat_y_pred: true
+  var_type: fixedlarge
+  ema_rate: 0.9999
+  ema: true
+
+diffusion:
+  beta_schedule: linear
+  beta_start: 0.0001
+  beta_end: 0.02
+  timesteps: 1000
+  test_timesteps: 10
+  vis_step: 100
+  num_figs: 10
+  include_guidance: true
+  apply_aux_cls: true
+  aux_cls:
+    arch: resnet18_quantum
+    pre_train: true
+    joint_train: false
+
+dcg:
+  epochs: 35
+  batch_size: 32
+  lr: 0.0003
+  weight_decay: 1.0e-5
+  early_stopping_patience: 15
+  min_epochs: 15
+  n_qubits: 4
+
+training:
+  batch_size: 16
+  accumulate_grad_batches: 2
+  n_epochs: 1000
+  min_epochs: 150
+  validation_freq: 1
+  early_stopping_patience: 100
+  logging_freq: 20
+  snapshot_freq: 1
+  image_folder: quantum_v6_resnet/outputs/training_images
+
+testing:
+  batch_size: 16
+
+optim:
+  optimizer: Adam
+  lr: 0.0003
+  weight_decay: 1.0e-5
+  beta1: 0.9
+  amsgrad: false
+  eps: 1.0e-8
+  min_lr: 1.0e-6
+  grad_clip: 1.0

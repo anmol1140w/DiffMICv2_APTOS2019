@@ -11,7 +11,7 @@ from aptos_research.registry import record
 
 def _resolve(spec):
  module,name=spec.split(':',1); return getattr(importlib.import_module(module),name)
-def extract(factory_spec, cache_path, checkpoint, seed=2026, max_samples=None, inference_steps=100, pooling='flatten'):
+def extract(factory_spec, cache_path, checkpoint, seed=2026, max_samples=None, inference_steps=16, pooling='flatten'):
  import numpy as np, torch
  random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
  if torch.cuda.is_available(): torch.cuda.manual_seed_all(seed)
@@ -59,7 +59,7 @@ def extract(factory_spec, cache_path, checkpoint, seed=2026, max_samples=None, i
  store.close(); return seen
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--factory',required=True,help='Python module:function adapter for real DiffMIC model/checkpoint and APTOS batches');p.add_argument('--cache',default='outputs/trajectories.sqlite');p.add_argument('--checkpoint',required=True);p.add_argument('--seed',type=int,default=2026);p.add_argument('--max-samples',type=int);p.add_argument('--inference-steps',type=int,default=100);p.add_argument('--pooling',choices=['flatten','gap'],default='flatten');a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--factory',required=True,help='Python module:function adapter for real DiffMIC model/checkpoint and APTOS batches');p.add_argument('--cache',default='outputs/trajectories.sqlite');p.add_argument('--checkpoint',required=True);p.add_argument('--seed',type=int,default=2026);p.add_argument('--max-samples',type=int);p.add_argument('--inference-steps',type=int,default=16);p.add_argument('--pooling',choices=['flatten','gap'],default='flatten');a=p.parse_args()
  count=extract(a.factory,a.cache,a.checkpoint,a.seed,a.max_samples,a.inference_steps,a.pooling)
  record('outputs/experiments/registry.jsonl','trajectory-extraction','PARTIAL_BOUNDED' if a.max_samples else 'COMPLETED',{'factory':a.factory,'seed':a.seed,'inference_steps':a.inference_steps,'pooling':a.pooling,'max_samples':a.max_samples},{'feature_cache':str(Path(a.cache).resolve())},{'new_samples':count})
  print(json.dumps({'new_samples':count}))

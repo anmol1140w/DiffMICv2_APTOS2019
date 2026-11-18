@@ -35,12 +35,22 @@ class ConditionalConv2d(nn.Module):
         out = self.lin(x)
         bz, dim, h, w = out.size()
         gamma = self.embed(t)
-        gamma = gamma.reshape(bz, h*w, dim).permute(0,2,1).reshape(bz,dim,h,w)
-        out = gamma*out
+        if gamma.numel() == bz * h * w * dim:
+            gamma = gamma.reshape(bz, h * w, dim).permute(0, 2, 1).reshape(bz, dim, h, w)
+        elif gamma.numel() == bz * dim:
+            gamma = gamma.view(bz, dim, 1, 1)
+        else:
+            gamma = gamma.view(bz, dim, h, w)
+        out = gamma * out
         return out
 
 
-from EfficientSAM.efficient_sam.build_efficient_sam import build_efficient_sam_vits, build_efficient_sam_vitt
+try:
+    from EfficientSAM.efficient_sam.build_efficient_sam import build_efficient_sam, build_efficient_sam_vits, build_efficient_sam_vitt
+except ImportError:
+    build_efficient_sam = None
+    build_efficient_sam_vits = None
+    build_efficient_sam_vitt = None
 
 class DenoiseUNet(nn.Module):
     def __init__(self, y_dim, feature_dim, n_steps, guidance=True):
@@ -99,7 +109,10 @@ class ConditionalModel(nn.Module):
         self.guidance = guidance
         
         # encoder for x
-        self.encoder_x = SamEncoder(arch=arch, feature_dim=feature_dim, config=config)
+        if getattr(config.model, 'encoder', None) == 'sam' and build_efficient_sam_vits is not None:
+            self.encoder_x = SamEncoder(arch=arch, feature_dim=feature_dim, config=config)
+        else:
+            self.encoder_x = ResNetEncoder(arch=arch, feature_dim=feature_dim, config=config, local=False)
         self.norm = nn.BatchNorm1d(feature_dim)
 
         self.encoder_x_l = ResNetEncoder(arch=arch, feature_dim=feature_dim, config=config, local=True)
@@ -213,19 +226,24 @@ class ResNetEncoder(nn.Module):
 class SamEncoder(nn.Module):
     def __init__(self, arch='resnet18', feature_dim=128, config=None, image_size=224):
         super(SamEncoder, self).__init__()
-
-        self.f = []
-        self.f = build_efficient_sam_vits(image_size=image_size)
-        self.featdim = 384
-        
-            
+        import os
+        sam_ckpt = os.path.join(os.path.dirname(__file__), 'EfficientSAM/weights/efficient_sam_vits.pt')
+        if not os.path.exists(sam_ckpt):
+            sam_ckpt = '/home/pratyum/diffmic_anmol/DiffMICv2_APTOS2019/EfficientSAM/weights/efficient_sam_vits.pt'
+        if build_efficient_sam is not None:
+            self.f = build_efficient_sam(encoder_patch_embed_dim=384, encoder_num_heads=6, checkpoint=sam_ckpt)
+        else:
+            self.f = build_efficient_sam_vits()
+        for p in self.f.parameters():
+            p.requires_grad = False
+        self.featdim = 256
         self.g = nn.Conv2d(self.featdim, feature_dim, kernel_size=1, stride=1)
 
     def forward_feature(self, x):
-        feature = self.f(x)
+        feature = self.f.get_image_embeddings(x)
         feature = self.g(feature)
-        feature = F.adaptive_avg_pool2d(feature,(1,1))
-        return torch.flatten(feature,start_dim=1)
+        feature = F.adaptive_avg_pool2d(feature, (1, 1))
+        return torch.flatten(feature, start_dim=1)
 
     def forward(self, x):
         feature = self.forward_feature(x)

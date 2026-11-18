@@ -4,9 +4,9 @@ data:
   label_min_max: [0.001, 0.999]
   num_classes: 5
   num_workers: 4
-  dataroot: ${APTOS_ROOT}
+  dataroot: /home/pratyum/diffmic/data/aptos
   splits_manifest: outputs/aptos_splits.json
-  aux_checkpoint: ${DIFFMIC_AUX_CHECKPOINT}
+  aux_checkpoint: /home/pratyum/diffmic/code/DiffMICv2/pretraining/ckpt/aptos_aux_model.pth
 model:
   type: simple
   data_dim: 150528

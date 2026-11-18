@@ -1,0 +1,23 @@
+{
+  "decision": "INCONCLUSIVE",
+  "reason": "paired percentile bootstrap versus highest-accuracy named validation control",
+  "minimum_accuracy_delta": 0.01,
+  "alpha": 0.05,
+  "point_delta_accuracy": 0.007272727272727273,
+  "bootstrap_ci": [
+    -0.005454545454545455,
+    0.02181818181818182
+  ],
+  "samples": 550,
+  "controls": 5,
+  "strongest_control_index": 3,
+  "control_accuracies": [
+    0.8218181818181818,
+    0.8236363636363636,
+    0.7527272727272727,
+    0.8472727272727273,
+    0.8327272727272728
+  ],
+  "seed": 2026,
+  "bootstrap_samples": 5000
+}

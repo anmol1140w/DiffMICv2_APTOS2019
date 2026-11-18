@@ -12,14 +12,23 @@ venv/
 env/
 .env
 
-# Model Checkpoints, Logs, SQLite & Datasets
+# Model Checkpoints, Weights, Logs, SQLite & Datasets
 *.ckpt
 *.pth
 *.pt
 *.onnx
+*.npz
+*.zip
+*.tar*
 dataset/
+data/
 outputs/
 logs/
+ckpts/
+*/ckpts/
+*/*/ckpts/
+weights/
+*/weights/
 *.sqlite
 *.sqlite3
 
